@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: vrp-postgres
+    environment:
+      - POSTGRES_USER=vrp_user
+      - POSTGRES_PASSWORD=vrp_password
+      - POSTGRES_DB=vrp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vrp_user -d vrp_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vrp-backend
+    ports:
+      - "8002:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://vrp_user:vrp_password@postgres:5432/vrp_db
+      - USE_DATABASE=true
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vrp-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - REACT_APP_API_URL=http://localhost:8002
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - WDS_SOCKET_PORT=0
+    networks:
+      - app-network
+    depends_on:
+      - backend
+    stdin_open: true
+    tty: true
+    command: sh -c "npm start"
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
